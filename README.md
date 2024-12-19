@@ -25,11 +25,117 @@ start using the package.
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+First, initialize the messaging service:
 
 ```dart
-const like = 'sample';
+import 'package:rocket_chat_flutter/rocket_chat_flutter.dart';
+
+// Initialize the service
+MessagingServices.instance.init(
+  serverUrl: 'https://your-rocketchat-server.com',
+  webSocketUrl: 'wss://your-rocketchat-server.com',
+  authToken: 'your-auth-token',
+  userId: 'your-user-id',
+);
+```
+
+### Managing Direct Messages
+
+```dart
+// Create a DM
+String? roomId = await MessagingServices.instance.createDM('username');
+
+// Delete a DM
+await MessagingServices.instance.deleteDM(roomId);
+
+// Get room information
+Room room = await MessagingServices.instance.getSingleRoom(roomId);
+```
+
+### Real-time Subscriptions and Messages
+
+```dart
+// Listen to subscription changes
+MessagingServices.instance.getSubscriptionsStream().listen((List<RoomChange> changes) {
+  // Handle subscription updates
+});
+
+// Listen to messages in a room
+MessagingServices.instance.getMessagesStream(roomId).listen((List<Message> messages) {
+  // Handle new messages
+});
+
+// Listen to typing indicators
+MessagingServices.instance.getTypingStream(roomId).listen((Typing typing) {
+  // Handle typing status
+});
+```
+
+### Sending Messages
+
+```dart
+// Send text message
+MessagingServices.instance.sendMessage(
+  roomId: 'room-id',
+  message: 'Hello!',
+);
+
+// Send audio message
+MessagingServices.instance.sendAudioMessage(
+  roomId: 'room-id',
+  audioFiles: [File('path/to/audio')],
+  message: 'Audio message caption',
+);
+
+// Send image message
+MessagingServices.instance.sendImageMessage(
+  roomId: 'room-id',
+  imageFiles: [File('path/to/image')],
+  message: 'Image caption',
+);
+
+// Send video message
+MessagingServices.instance.sendVideoMessage(
+  roomId: 'room-id',
+  videoFiles: [File('path/to/video')],
+  message: 'Video caption',
+);
+```
+
+### User Presence
+
+```dart
+// Listen to user presence changes
+MessagingServices.instance.getUserPresenceStream(userId).listen((UserPresence presence) {
+  // Handle presence updates
+});
+
+// Update user presence
+MessagingServices.instance.sendUserPresence(userId, Presence.online);
+```
+
+### Cleanup
+
+```dart
+// Don't forget to dispose when done
+MessagingServices.instance.dispose();
+```
+
+### Message Read Status
+
+```dart
+// Mark all messages in a room as read
+await MessagingServices.instance.markAllMessagesAsRead(roomId);
+```
+
+Remember to properly handle stream subscriptions and dispose of them when they're no longer needed. Each stream has a corresponding close method:
+
+```dart
+// Close specific streams
+MessagingServices.instance.closeSubscriptionsStream();
+MessagingServices.instance.closeMessagesStream(roomId);
+MessagingServices.instance.closeTypingStream(roomId);
+MessagingServices.instance.closeUserPresenceStream(userId);
 ```
 
 ## Additional information
