@@ -25,117 +25,102 @@ start using the package.
 
 ## Usage
 
-First, initialize the messaging service:
+Initialize the RocketChat client:
 
 ```dart
 import 'package:rocket_chat_flutter/rocket_chat_flutter.dart';
 
-// Initialize the service
-MessagingServices.instance.init(
+final rocketChat = RocketChatFlutter(
   serverUrl: 'https://your-rocketchat-server.com',
   webSocketUrl: 'wss://your-rocketchat-server.com',
   authToken: 'your-auth-token',
   userId: 'your-user-id',
 );
+
+// Initialize the connection
+await rocketChat.init();
 ```
 
-### Managing Direct Messages
+### Real-time Messaging
 
 ```dart
-// Create a DM
-String? roomId = await MessagingServices.instance.createDM('username');
-
-// Delete a DM
-await MessagingServices.instance.deleteDM(roomId);
-
-// Get room information
-Room room = await MessagingServices.instance.getSingleRoom(roomId);
-```
-
-### Real-time Subscriptions and Messages
-
-```dart
-// Listen to subscription changes
-MessagingServices.instance.getSubscriptionsStream().listen((List<RoomChange> changes) {
-  // Handle subscription updates
-});
-
-// Listen to messages in a room
-MessagingServices.instance.getMessagesStream(roomId).listen((List<Message> messages) {
+// Subscribe to room messages
+rocketChat.getMessagesStream(roomId).listen((List<Message> messages) {
   // Handle new messages
 });
 
-// Listen to typing indicators
-MessagingServices.instance.getTypingStream(roomId).listen((Typing typing) {
-  // Handle typing status
-});
+// Send a text message
+rocketChat.sendMessageToRoom(roomId, 'Hello, World!');
+
+// Send media messages
+final files = [File('path/to/file')];
+
+// Images
+rocketChat.sendImageMessage(roomId, 'Image caption', files);
+
+// Audio
+rocketChat.sendAudioMessage(roomId, 'Audio caption', files);
+
+// Video
+rocketChat.sendVideoMessage(roomId, 'Video caption', files);
 ```
 
-### Sending Messages
+### Room Management
 
 ```dart
-// Send text message
-MessagingServices.instance.sendMessage(
-  roomId: 'room-id',
-  message: 'Hello!',
-);
+// Create a Direct Message room
+String roomId = await rocketChat.createNewRoom('username');
 
-// Send audio message
-MessagingServices.instance.sendAudioMessage(
-  roomId: 'room-id',
-  audioFiles: [File('path/to/audio')],
-  message: 'Audio message caption',
-);
+// Get room information
+Room room = await rocketChat.getRoomInfo(roomId);
 
-// Send image message
-MessagingServices.instance.sendImageMessage(
-  roomId: 'room-id',
-  imageFiles: [File('path/to/image')],
-  message: 'Image caption',
-);
+// Delete a room
+await rocketChat.deleteRoom(roomId);
 
-// Send video message
-MessagingServices.instance.sendVideoMessage(
-  roomId: 'room-id',
-  videoFiles: [File('path/to/video')],
-  message: 'Video caption',
-);
+// Mark all messages as read
+await rocketChat.markAllRoomMessagesAsRead(roomId);
+```
+
+### Real-time Subscriptions
+
+```dart
+// Listen to room subscription changes
+rocketChat.getSubscriptionsStream().listen((List<RoomChange> changes) {
+  // Handle subscription updates
+});
+
+// Listen to typing indicators
+rocketChat.getTypingStream(roomId).listen((Typing typing) {
+  // Handle typing status
+});
+
+// Send typing indicator
+rocketChat.sendTypingStatus(roomId, username, true);
 ```
 
 ### User Presence
 
 ```dart
 // Listen to user presence changes
-MessagingServices.instance.getUserPresenceStream(userId).listen((UserPresence presence) {
+rocketChat.getUserPresenceStream(userId).listen((UserPresence presence) {
   // Handle presence updates
 });
 
 // Update user presence
-MessagingServices.instance.sendUserPresence(userId, Presence.online);
+rocketChat.sendUserPresenceStatus(userId, 'online');
 ```
 
 ### Cleanup
 
 ```dart
-// Don't forget to dispose when done
-MessagingServices.instance.dispose();
-```
-
-### Message Read Status
-
-```dart
-// Mark all messages in a room as read
-await MessagingServices.instance.markAllMessagesAsRead(roomId);
-```
-
-Remember to properly handle stream subscriptions and dispose of them when they're no longer needed. Each stream has a corresponding close method:
-
-```dart
 // Close specific streams
-MessagingServices.instance.closeSubscriptionsStream();
-MessagingServices.instance.closeMessagesStream(roomId);
-MessagingServices.instance.closeTypingStream(roomId);
-MessagingServices.instance.closeUserPresenceStream(userId);
+rocketChat.closeMessagesStream(roomId);
+rocketChat.closeTypingStream(roomId);
+rocketChat.closeUserPresenceStream(userId);
+rocketChat.closeRoomSubscriptionsStream();
+
+// Dispose of the client when done
+rocketChat.dispose();
 ```
 
 ## Additional information
