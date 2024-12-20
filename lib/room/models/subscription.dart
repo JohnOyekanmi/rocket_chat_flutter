@@ -68,4 +68,9 @@ class Subscription {
       '_updatedAt': {'\$date': updatedAt.toIso8601String()},
     };
   }
+
+  @override
+  String toString() {
+    return 'Subscription(id: $id, rid: $rid, name: $name, type: $type)';
+  }
 }

@@ -4,11 +4,14 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:rocket_chat_flutter/message/models/message.dart';
 import 'package:rocket_chat_flutter/room/models/room_change.dart';
+import 'package:rocket_chat_flutter/room/models/subscription.dart';
 import 'package:rocket_chat_flutter/user/models/user_presence.dart';
 import 'package:rocket_chat_flutter/websocket/models/collection_type.dart';
 import 'package:rocket_chat_flutter/websocket/websocket_helper.dart';
+import 'package:uuid/uuid.dart';
 
 import 'auth/models/auth.dart';
 import 'message/message_service.dart';
@@ -75,13 +78,23 @@ class RocketChatFlutter with LoggerMixin {
   // Map<roomId, typingSubscriptionId>
   final Map<String, String> _roomTypingSubscriptions = {};
 
-  final Map<String, StreamController<List<Message>>> _roomMessages = {};
-  final Map<String, StreamController<Typing>> _roomTypings = {};
-  final StreamController<List<RoomChange>> _subscriptions =
-      StreamController.broadcast();
+  // final Map<String, StreamController<List<Message>>> _roomMessages = {};
+  // final Map<String, StreamController<Typing>> _roomTypings = {};
+  final Map<String, ValueNotifier<List<Message>>> _roomMessages = {};
+  final Map<String, ValueNotifier<Typing?>> _roomTypings = {};
+  // final StreamController<List<RoomChange>> _subscriptions =
+  //     StreamController.broadcast();
+  final ValueNotifier<List<RoomChange>> _subscriptions = ValueNotifier([]);
+
+  Timer? _roomSubscriptionQueryTimer;
+
   bool _isSubscribedToRoomSubscriptions = false;
-  final Map<String, StreamController<UserPresence>> _userPresences = {};
+  // final Map<String, StreamController<UserPresence>> _userPresences = {};
+  final Map<String, ValueNotifier<UserPresence?>> _userPresences = {};
   final Map<String, String> _userPresenceSubscriptions = {};
+
+  // Add set to track processed message IDs
+  final Set<String> _processedMessageIds = {};
 
   /// Initialize the RocketChatFlutter instance.
   Future<void> init() async {
@@ -91,15 +104,16 @@ class RocketChatFlutter with LoggerMixin {
   /// Dispose of the RocketChatFlutter instance.
   void dispose() {
     _webSocketService.dispose();
-    _subscriptions.close();
-    for (var value in _roomMessages.values) {
-      value.close();
+    _subscriptions.dispose();
+    _roomSubscriptionQueryTimer?.cancel();
+    for (var msg in _roomMessages.entries) {
+      closeMessages(msg.key);
     }
-    for (var value in _roomTypings.values) {
-      value.close();
+    for (var typing in _roomTypings.entries) {
+      closeTyping(typing.key);
     }
-    for (var value in _userPresences.values) {
-      value.close();
+    for (var presence in _userPresences.entries) {
+      closeUserPresence(presence.key);
     }
     _roomMessageSubscriptions.clear();
     _roomTypingSubscriptions.clear();
@@ -110,8 +124,35 @@ class RocketChatFlutter with LoggerMixin {
   void _handleWebSocketData(dynamic data) {
     // Handle WebSocket data
     log('_handleWebSocketData', 'WebSocket data received: $data');
+    // print('data: ${data.toString()}');
 
     final response = WebSocketResponse.fromJson(data);
+
+    if (response.message == 'result') {
+      if (response.id ==
+          WebSocketHelper.getUserSubscriptionsRequestId(userId)) {
+        _handleUserSubscriptionsQueryResponse(response.result);
+      }
+    } else {
+      print('data: ${data.toString()}');
+    }
+
+    if (response.message == 'removed') {
+      switch (response.collection) {
+        case CollectionType.STREAM_ROOM_MESSAGES:
+          final eventName = response.fields['eventName'];
+          // a message deleted activity.
+          if (eventName == CollectionType.STREAM_ROOM_MESSAGES) {
+            final args = response.fields['args'];
+            _handleDeleteMessageActivity(args);
+          }
+          break;
+        default:
+          logE('_handleWebSocketData',
+              'Unknown collection type: $response.collection');
+          break;
+      }
+    }
 
     if (response.message == 'changed') {
       switch (response.collection) {
@@ -125,16 +166,16 @@ class RocketChatFlutter with LoggerMixin {
             }
           }
           break;
-        case CollectionType.STREAM_NOTIFY_USER:
-          final eventName = response.fields['eventName'];
-          if (eventName != null &&
-              eventName.endsWith('subscriptions-changed')) {
-            final args = response.fields['args'];
-            if (args != null && args.isNotEmpty) {
-              _handleRoomSubscriptionsChanged(args);
-            }
-          }
-          break;
+        // case CollectionType.STREAM_NOTIFY_USER:
+        //   final eventName = response.fields['eventName'];
+        //   if (eventName != null &&
+        //       eventName.endsWith('subscriptions-changed')) {
+        //     final args = response.fields['args'];
+        //     if (args != null && args.isNotEmpty) {
+        //       _handleRoomSubscriptionsChanged(args);
+        //     }
+        //   }
+        //   break;
         case CollectionType.STREAM_ROOM_MESSAGES:
           final eventName = response.fields['eventName'];
           if (eventName != null) {
@@ -164,28 +205,152 @@ class RocketChatFlutter with LoggerMixin {
   void _handleUserActivity(List<dynamic> args, String roomId) {
     log('_handleUserActivity', 'User activity: $args');
 
-    _roomTypings[roomId]?.add(Typing.fromList(args));
+    _roomTypings[roomId]?.value = Typing.fromList(args);
   }
 
-  void _handleRoomSubscriptionsChanged(List<dynamic> args) {
-    log('_handleRoomSubscriptionsChanged', 'Room subscriptions changed: $args');
+  void _handleUserSubscriptionsQueryResponse(List<dynamic> result) {
+    log(
+      '_handleUserSubscriptionsQueryResponse',
+      'User subscriptions query response: $result',
+    );
 
-    _subscriptions.add([RoomChange.fromList(args)]);
+    // print('args: ${result.map((a) => a.toString())}');
+
+    final newSubscriptions = List<Subscription>.from(
+      result.map((r) => Subscription.fromJson(r)),
+    );
+    // final lastValue = _subscriptions.value;
+
+    // // remove the subscriptions that are already in the list but have
+    // // been updated.
+    // lastValue.removeWhere(
+    //   (r) => newSubscriptions.any((ns) => ns.rid == r.subscription.rid),
+    // );
+
+    // // add the new subscriptions to the list.
+    // final newRoomChanges = newSubscriptions
+    //     .map((ns) => RoomChange(RoomChangeType.updated, ns))
+    //     .toList();
+
+    // final list = [...lastValue, ...newRoomChanges];
+
+    // // sort the list by updatedAt in descending order.
+    // list.sort(
+    //   (a, b) => a.subscription.updatedAt.compareTo(b.subscription.updatedAt),
+    // );
+
+    // get the ids of the rooms that are no longer subscribed to.
+    final roomIds =
+        _subscriptions.value.map((ns) => ns.subscription.rid).toList();
+    for (var roomId in roomIds) {
+      if (!newSubscriptions.map((ns) => ns.rid).contains(roomId)) {
+        closeMessages(roomId);
+      }
+    }
+
+    _subscriptions.value = newSubscriptions
+        .map((ns) => RoomChange(RoomChangeType.updated, ns))
+        .toList();
   }
+
+  // void _handleRoomSubscriptionsChanged(List<dynamic> args) {
+  //   log('_handleRoomSubscriptionsChanged', 'Room subscriptions changed: $args');
+
+  //   print('args: ${args.map((a) => a.toString())}');
+
+  //   final change = RoomChange.fromList(args);
+  //   final lastValue = _subscriptions.value;
+
+  //   switch (change.changeType) {
+  //     case RoomChangeType.inserted:
+  //       _subscriptions.value = [...lastValue, change];
+  //     case RoomChangeType.updated:
+  //       lastValue
+  //           .removeWhere((r) => r.subscription.rid == change.subscription.rid);
+  //       final list = [...lastValue, change];
+  //       list.sort((a, b) =>
+  //           a.subscription.updatedAt.compareTo(b.subscription.updatedAt));
+  //       _subscriptions.value = list;
+  //     case RoomChangeType.removed:
+  //       lastValue
+  //           .removeWhere((r) => r.subscription.rid == change.subscription.rid);
+  //       _subscriptions.value = lastValue;
+  //   }
+  // }
 
   void _handleRoomMessages(List<dynamic> args, String roomId) {
     log('_handleRoomMessages', 'Room messages: $args');
 
-    final List<Message> messages =
-        args.map((e) => Message.fromJson(e)).toList();
-    _roomMessages[roomId]?.add(messages);
+    print('args: ${args.map((a) => a.toString())}');
+
+    final List<dynamic> rawMessages = [];
+
+    // Add duplicate detection using message ID
+    for (var messageData in args) {
+      final messageId = messageData['_id'];
+      if (messageId != null) {
+        if (!_processedMessageIds.add(messageId)) {
+          // Message already processed, skip it
+          continue;
+        }
+
+        // Optional: Maintain a reasonable set size by removing old entries
+        if (_processedMessageIds.length > 1000) {
+          _processedMessageIds.clear();
+        }
+
+        rawMessages.add(messageData);
+        _processedMessageIds.add(messageId);
+      }
+    }
+
+    // convert the raw messages to messages.
+    final messages = rawMessages.map((m) => Message.fromJson(m)).toList();
+
+    if (messages.isNotEmpty) {
+      final lastValue = _roomMessages[roomId]?.value;
+
+      // remove the messages that are already in the list
+      // to avoid duplicates (especially in the case of updates).
+      lastValue?.removeWhere((m) => messages.any((nm) => nm.id == m.id));
+      final list = [if (lastValue != null) ...lastValue, ...messages];
+
+      // sort the messages by createdAt in descending order
+      list.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+      _roomMessages[roomId]?.value = list;
+    }
+  }
+
+  void _handleDeleteMessageActivity(List<dynamic> args) {
+    log('_handleDeleteMessageActivity', 'Delete message activity: $args');
+    print('args: ${args.map((a) => a.toString())}');
+
+    for (var messageData in args) {
+      final messageId = messageData['_id'];
+      final roomId = messageData['rid'];
+
+      if (messageId != null && roomId != null) {
+        final currentMessages =
+            List<Message>.from(_roomMessages[roomId]?.value ?? []);
+        currentMessages.removeWhere((m) => m.id == messageId);
+
+        // Create a new sorted list
+        final updatedMessages = List<Message>.from(currentMessages)
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+        // Update the ValueNotifier with the new list
+        _roomMessages[roomId]?.value = updatedMessages;
+        _processedMessageIds.remove(messageId);
+      }
+    }
   }
 
   void _handleLoggedChange(List<dynamic> args) {
     log('_handleLoggedChange', 'Logged change: $args');
 
     final presence = UserPresence.fromList(args[0]);
-    _userPresences[presence.userId]?.add(presence);
+    _userPresences[presence.userId]?.value = presence;
   }
 
   // ==============================
@@ -193,46 +358,65 @@ class RocketChatFlutter with LoggerMixin {
   // ==============================
 
   /// Get the subscriptions stream.
-  Stream<List<RoomChange>> getSubscriptionsStream() {
+  ValueNotifier<List<RoomChange>> getSubscriptions() {
     // Use Future.microtask to avoid synchronous subscription
     Future.microtask(() => _subscribeToRoomSubscriptions());
 
     log(
-      'getSubscriptionsStream',
-      'Subscribed to subscriptions stream',
+      'getSubscriptions',
+      'Subscribed to subscriptions',
     );
 
-    return _subscriptions.stream;
+    return _subscriptions;
   }
 
   void _subscribeToRoomSubscriptions() {
     if (_isSubscribedToRoomSubscriptions) {
-      // fetch initial subscriptions if the stream is already subscribed.
-      _roomService.getSubscriptions().then((subscriptions) {
-        _subscriptions.add(subscriptions);
-      });
       return;
     }
 
-    _webSocketService.subscribeToUserRoomSubscriptions();
+    // periodically get user subscriptions.
+    _periodicallyGetUserSubscriptions();
 
     _isSubscribedToRoomSubscriptions = true;
-
-    // fetch initial subscriptions.
-    _roomService.getSubscriptions().then((subscriptions) {
-      _subscriptions.add(subscriptions);
-    });
   }
 
+  void _periodicallyGetUserSubscriptions() {
+    _roomSubscriptionQueryTimer = Timer.periodic(
+      const Duration(milliseconds: 1500),
+      (timer) {
+        _webSocketService.getUserSubscriptions();
+      },
+    );
+  }
+
+  // void _subscribeToRoomSubscriptions() {
+  //   if (_isSubscribedToRoomSubscriptions) {
+  //     return;
+  //   }
+
+  //   _webSocketService.subscribeToUserRoomSubscriptions();
+
+  //   _isSubscribedToRoomSubscriptions = true;
+
+  //   // fetch initial subscriptions.
+  //   _roomService.getSubscriptions().then((subscriptions) {
+  //     print('initial-subscriptions: ${subscriptions.map((s) => s.toString())}');
+  //     _subscriptions.value = subscriptions;
+  //   });
+  // }
+
   /// Close the subscriptions stream
-  void closeRoomSubscriptionsStream() {
-    _subscriptions.close();
-    _webSocketService.unsubscribeFromUserRoomSubscriptions();
+  void closeRoomSubscriptions() {
+    _isSubscribedToRoomSubscriptions = false;
+    _roomSubscriptionQueryTimer?.cancel();
+    _subscriptions.dispose();
+    // _webSocketService.unsubscribeFromUserRoomSubscriptions();
   }
 
   /// Get the messages stream for a room.
-  Stream<List<Message>> getMessagesStream(String roomId) {
-    _roomMessages[roomId] ??= StreamController<List<Message>>.broadcast();
+  ValueNotifier<List<Message>> getMessages(String roomId) {
+    _roomMessages[roomId] ??= ValueNotifier([]);
 
     if (!_roomMessageSubscriptions.containsKey(roomId)) {
       // subscribe to the room messages stream if the stream is not already subscribed.
@@ -240,21 +424,16 @@ class RocketChatFlutter with LoggerMixin {
       Future.microtask(() => _subscribeToRoomMessages(roomId));
 
       log(
-        'getMessagesStream',
+        'getMessages',
         'Subscribed to room messages stream for room $roomId',
       );
     }
 
-    return _roomMessages[roomId]!.stream;
+    return _roomMessages[roomId]!;
   }
 
   void _subscribeToRoomMessages(String roomId) {
     if (_roomMessageSubscriptions.keys.contains(roomId)) {
-      // fetch initial messages if the room is already subscribed
-      // and an additional subscription is requested.
-      _messageService.getMessages(roomId).then((messages) {
-        _roomMessages[roomId]?.add(messages);
-      });
       return;
     }
 
@@ -264,22 +443,25 @@ class RocketChatFlutter with LoggerMixin {
     _roomMessageSubscriptions[roomId] = WebSocketHelper.getRoomMsgSubId(roomId);
 
     // fetch initial messages.
-    _messageService.getMessages(roomId).then((messages) {
-      print('_messageService.getMessagesmessages: $messages');
-      _roomMessages[roomId]?.add(messages);
+    _messageService.getRoomMessageHistory(roomId).then((messages) {
+      print('messages: ${messages.map((m) => m.toJson())}');
+      if (messages.isNotEmpty) {
+        _roomMessages[roomId]?.value = messages;
+      }
     });
   }
 
   /// Close the messages stream for a room.
-  void closeMessagesStream(String roomId) {
-    _roomMessages[roomId]?.close();
+  void closeMessages(String roomId) {
+    _roomMessages[roomId]?.dispose();
     _roomMessages.remove(roomId);
     _roomMessageSubscriptions.remove(roomId);
+    _webSocketService.unsubscribeFromRoomMessagesStream(roomId);
   }
 
   /// Get the typing stream for a room.
-  Stream<Typing> getTypingStream(String roomId) {
-    _roomTypings[roomId] ??= StreamController<Typing>.broadcast();
+  ValueNotifier<Typing?> getTyping(String roomId) {
+    _roomTypings[roomId] ??= ValueNotifier(null);
 
     if (!_roomTypingSubscriptions.containsKey(roomId)) {
       // Use Future.microtask to avoid synchronous subscription
@@ -291,7 +473,7 @@ class RocketChatFlutter with LoggerMixin {
       );
     }
 
-    return _roomTypings[roomId]!.stream;
+    return _roomTypings[roomId]!;
   }
 
   void _subscribeToRoomTyping(String roomId) {
@@ -307,15 +489,16 @@ class RocketChatFlutter with LoggerMixin {
   }
 
   /// Close the typing stream for a room.
-  void closeTypingStream(String roomId) {
-    _roomTypings[roomId]?.close();
+  void closeTyping(String roomId) {
+    _roomTypings[roomId]?.dispose();
     _roomTypings.remove(roomId);
     _roomTypingSubscriptions.remove(roomId);
+    _webSocketService.unsubscribeFromRoomTypingStream(roomId);
   }
 
   /// Get the user presence stream.
-  Stream<UserPresence> getUserPresenceStream(String userId) {
-    _userPresences[userId] ??= StreamController<UserPresence>.broadcast();
+  ValueNotifier<UserPresence?> getUserPresence(String userId) {
+    _userPresences[userId] ??= ValueNotifier(null);
 
     if (!_userPresenceSubscriptions.containsKey(userId)) {
       // Use Future.microtask to avoid synchronous subscription
@@ -327,7 +510,7 @@ class RocketChatFlutter with LoggerMixin {
       );
     }
 
-    return _userPresences[userId]!.stream;
+    return _userPresences[userId]!;
   }
 
   void _subscribeToUserPresence(String userId) {
@@ -341,10 +524,11 @@ class RocketChatFlutter with LoggerMixin {
   }
 
   /// Close the user presence stream
-  void closeUserPresenceStream(String userId) {
-    _userPresences[userId]?.close();
+  void closeUserPresence(String userId) {
+    _userPresences[userId]?.dispose();
     _userPresences.remove(userId);
     _userPresenceSubscriptions.remove(userId);
+    _webSocketService.unsubscribeFromUserPresenceStream(userId);
   }
 
   // ==============================
@@ -353,9 +537,14 @@ class RocketChatFlutter with LoggerMixin {
 
   /// Send a message to a room.
   void sendMessageToRoom(String roomId, String message) {
+    final messageId = const Uuid().v4();
     _messageService.sendMessage(
       roomId,
-      NewMessageRequest(roomId: roomId, text: message),
+      NewMessageRequest(
+        id: messageId,
+        roomId: roomId,
+        text: message,
+      ),
     );
   }
 
@@ -434,11 +623,28 @@ class RocketChatFlutter with LoggerMixin {
     );
   }
 
+  /// Delete a message from a room.
+  ///
+  /// [roomId] The room ID.
+  /// [messageId] The message ID.
+  Future<void> deleteMessage(String roomId, String messageId) async {
+    final success = await _messageService.deleteMessage(roomId, messageId);
+    if (success) {
+      print('success: $success');
+
+      // handling this manually for the time being
+      // until a better alternative is found.
+      _handleDeleteMessageActivity([
+        {'rid': roomId, '_id': messageId},
+      ]);
+    }
+  }
+
   /// Send a user presence status.
   ///
   /// [status] The user presence status.
-  void sendUserPresenceStatus(String userId, String status) {
-    _webSocketService.sendUserPresence(userId, status);
+  void sendUserPresenceStatus(String status) {
+    _webSocketService.sendUserPresence(status);
   }
 
   /// Create a new room.
@@ -461,6 +667,13 @@ class RocketChatFlutter with LoggerMixin {
   /// [roomId] The room ID.
   Future<List<Message>> getRoomMessages(String roomId) {
     return _messageService.getMessages(roomId);
+  }
+
+  /// Get the room message history.
+  ///
+  /// [roomId] The room ID.
+  Future<List<Message>> getRoomMessageHistory(String roomId) {
+    return _messageService.getRoomMessageHistory(roomId);
   }
 
   /// Delete a room.

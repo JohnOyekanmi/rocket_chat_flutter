@@ -12,6 +12,11 @@ class RoomChange {
       Subscription.fromJson(args[1]),
     );
   }
+
+  @override
+  String toString() {
+    return 'RoomChange(changeType: $changeType, subscription: $subscription)';
+  }
 }
 
 class RoomChangeType {

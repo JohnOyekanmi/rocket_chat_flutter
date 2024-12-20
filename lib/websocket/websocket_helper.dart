@@ -5,6 +5,12 @@ class WebSocketHelper {
     return "$moduleId/subscription-id";
   }
 
+  /// Get the user subscriptions request ID.
+  /// [userId] The user ID.
+  static String getUserSubscriptionsRequestId(String userId) {
+    return "subscriptions/get/$userId";
+  }
+
   /// Get the room message subscription ID.
   /// [roomId] The room ID.
   static String getRoomMsgSubId(String roomId) {

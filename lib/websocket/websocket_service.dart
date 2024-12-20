@@ -190,6 +190,16 @@ class WebSocketService with LoggerMixin {
     unsubscribe(WebSocketHelper.getRoomMsgSubId(roomId));
   }
 
+  /// Get user subscriptions.
+  void getUserSubscriptions() {
+    call(
+      "method",
+      "subscriptions/get",
+      WebSocketHelper.getUserSubscriptionsRequestId(authentication.userId),
+      [],
+    );
+  }
+
   /// Stream room typing.
   /// [roomId] The room ID to stream typing for.
   void subscribeToRoomTypingStream(String roomId) {
@@ -246,12 +256,14 @@ class WebSocketService with LoggerMixin {
 
   /// Send a user presence request.
   /// [status] The user presence status.
-  void sendUserPresence(String userId, String status) {
+  void sendUserPresence(String status) {
     call(
       "method",
-      "UserPresence:setDefaultStatus",
-      WebSocketHelper.getUserPresenceRequestId(userId),
-      [status],
+      "setUserStatus",
+      WebSocketHelper.getUserPresenceRequestId(authentication.userId),
+      [
+        {"status": status}
+      ],
     );
   }
 

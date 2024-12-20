@@ -5,12 +5,15 @@ import 'package:mime/mime.dart';
 import 'package:rocket_chat_flutter/message/models/message.dart';
 import 'package:rocket_chat_flutter/message/models/new_message_request.dart';
 import 'package:rocket_chat_flutter/utils/Exceptions/rocket_chat_exception.dart';
+import 'package:rocket_chat_flutter/utils/logger_mixin.dart';
 
 /// The message service.
-class MessageService {
+class MessageService with LoggerMixin {
   final Dio _dio;
 
-  MessageService(this._dio);
+  MessageService(this._dio) {
+    setLogModule(_serviceClass);
+  }
 
   /// The service class name.
   static const String _serviceClass = 'MESSAGE-SERVICE';
@@ -19,9 +22,48 @@ class MessageService {
   Future<List<Message>> getMessages(String roomId, [int count = 50]) async {
     try {
       final response = await _dio.get(
-        '/api/v1/im.messages?roomId=$roomId',
-        queryParameters: {'count': count},
+        '/api/v1/im.messages',
+        queryParameters: {
+          'roomId': roomId,
+          'count': count,
+        },
       );
+
+      print(response.data['messages'][0]);
+
+      return List<Message>.from(
+        response.data['messages'].map((e) => Message.fromJson(e)),
+      );
+    } on Exception catch (e, s) {
+      if (e is DioException) {
+        rethrow;
+      }
+
+      throw RocketChatException(
+        'Failed to fetch room messages',
+        _serviceClass,
+        'getMessages',
+        e,
+        s.toString(),
+      );
+    }
+  }
+
+  /// Get Room Message History
+  Future<List<Message>> getRoomMessageHistory(
+    String roomId, [
+    int count = 50,
+  ]) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/im.history',
+        queryParameters: {
+          'roomId': roomId,
+          'count': count,
+        },
+      );
+
+      print(response.data['messages']);
 
       return List<Message>.from(
         response.data['messages'].map((e) => Message.fromJson(e)),
@@ -103,6 +145,34 @@ class MessageService {
         'Failed to send media message',
         _serviceClass,
         'sendMediaMessage',
+        e,
+        s.toString(),
+      );
+    }
+  }
+
+  /// Delete a message from a room.
+  ///
+  /// [roomId] The room ID.
+  /// [messageId] The message ID.
+  Future<bool> deleteMessage(String roomId, String messageId) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/chat.delete',
+        data: {'roomId': roomId, 'msgId': messageId, 'asUser': false},
+      );
+
+      print('response: ${response.data}');
+      return response.data['success'];
+    } on Exception catch (e, s) {
+      if (e is DioException) {
+        rethrow;
+      }
+
+      throw RocketChatException(
+        'Failed to delete message',
+        _serviceClass,
+        'deleteMessage',
         e,
         s.toString(),
       );
