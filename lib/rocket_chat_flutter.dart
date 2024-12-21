@@ -19,6 +19,7 @@ import 'message/models/new_message_request.dart';
 import 'room/models/room.dart';
 import 'room/models/typing.dart';
 import 'room/room_service.dart';
+import 'user/user_service.dart';
 import 'utils/logger_mixin.dart';
 import 'websocket/models/websocket_response.dart';
 import 'websocket/websocket_service.dart';
@@ -55,6 +56,7 @@ class RocketChatFlutter with LoggerMixin {
     );
     _messageService = MessageService(_dio);
     _roomService = RoomService(_dio);
+    _userService = UserService(_dio);
 
     log(
       'RocketChatFlutter.Constructor',
@@ -72,6 +74,7 @@ class RocketChatFlutter with LoggerMixin {
   late final WebSocketService _webSocketService;
   late final MessageService _messageService;
   late final RoomService _roomService;
+  late final UserService _userService;
 
   // Map<roomId, messagesSubscriptionId>
   final Map<String, String> _roomMessageSubscriptions = {};
@@ -93,19 +96,30 @@ class RocketChatFlutter with LoggerMixin {
   final Map<String, ValueNotifier<UserPresence?>> _userPresences = {};
   final Map<String, String> _userPresenceSubscriptions = {};
 
+  Timer? _userPresenceTimer;
+
   // Add set to track processed message IDs
   final Set<String> _processedMessageIds = {};
 
   /// Initialize the RocketChatFlutter instance.
   Future<void> init() async {
     _webSocketService.init();
+    // set the user presence status to online.
+    // sendDefaultUserPresenceStatus(Presence.online);
+    // // periodically send an online user presence status to keep the user presence
+    // // status online.
+    // _periodicallySendUserPresenceStatus();
+    // sendTemporaryUserPresenceStatus(Presence.online);
   }
 
   /// Dispose of the RocketChatFlutter instance.
   void dispose() {
-    _webSocketService.dispose();
+    // set the user presence status to offline.
+    // sendDefaultUserPresenceStatus(Presence.offline);
+    // sendTemporaryUserPresenceStatus(Presence.offline);
     _subscriptions.dispose();
     _roomSubscriptionQueryTimer?.cancel();
+    _userPresenceTimer?.cancel();
     for (var msg in _roomMessages.entries) {
       closeMessages(msg.key);
     }
@@ -118,13 +132,13 @@ class RocketChatFlutter with LoggerMixin {
     _roomMessageSubscriptions.clear();
     _roomTypingSubscriptions.clear();
     _userPresenceSubscriptions.clear();
+    _webSocketService.dispose();
     log('dispose', 'RocketChatFlutter disposed');
   }
 
   void _handleWebSocketData(dynamic data) {
     // Handle WebSocket data
     log('_handleWebSocketData', 'WebSocket data received: $data');
-    // print('data: ${data.toString()}');
 
     final response = WebSocketResponse.fromJson(data);
 
@@ -133,36 +147,67 @@ class RocketChatFlutter with LoggerMixin {
           WebSocketHelper.getUserSubscriptionsRequestId(userId)) {
         _handleUserSubscriptionsQueryResponse(response.result);
       }
-    } else {
+    }
+
+    // TODO: remove this after debugging.
+    // for debugging purposes.
+    else {
       print('data: ${data.toString()}');
     }
 
-    if (response.message == 'removed') {
-      switch (response.collection) {
-        case CollectionType.STREAM_ROOM_MESSAGES:
-          final eventName = response.fields['eventName'];
-          // a message deleted activity.
-          if (eventName == CollectionType.STREAM_ROOM_MESSAGES) {
-            final args = response.fields['args'];
-            _handleDeleteMessageActivity(args);
-          }
-          break;
-        default:
-          logE('_handleWebSocketData',
-              'Unknown collection type: $response.collection');
-          break;
-      }
-    }
+    // if (response.message == 'removed') {
+    //   switch (response.collection) {
+    //     case CollectionType.STREAM_ROOM_MESSAGES:
+    //       final eventName = response.fields['eventName'];
+    //       // a message deleted activity.
+    //       if (eventName == CollectionType.STREAM_ROOM_MESSAGES) {
+    //         final args = response.fields['args'];
+    //         if (args != null && args.isNotEmpty) {
+    //           final roomId = args[0]['rid'];
+    //           final messageId = args[0]['_id'];
+    //           _handleDeleteMessageActivity([
+    //             {'rid': roomId, '_id': messageId},
+    //           ]);
+    //         }
+    //       }
+
+    //       // send a temporary online presence status when sending a message
+    //       // to keep the user presence status online.
+    //       // sendTemporaryUserPresenceStatus(Presence.online);
+    //       break;
+    //     default:
+    //       logE('_handleWebSocketData',
+    //           'Unknown collection type: $response.collection');
+    //       break;
+    //   }
+    // }
 
     if (response.message == 'changed') {
       switch (response.collection) {
         case CollectionType.STREAM_NOTIFY_ROOM:
           final eventName = response.fields['eventName'];
-          if (eventName != null && eventName.endsWith('user-activity')) {
-            final args = response.fields['args'];
-            if (args != null && args.isNotEmpty) {
-              final roomId = eventName.split('/')[0];
-              _handleUserActivity(args, roomId);
+          if (eventName != null) {
+            // ---> UserActivity(Typing)
+            if (eventName.endsWith('user-activity')) {
+              final args = response.fields['args'];
+              if (args != null && args.isNotEmpty) {
+                final roomId = eventName.split('/')[0];
+                _handleUserActivity(args, roomId);
+              }
+            }
+
+            // ---> Delete Message
+            if (eventName.endsWith('deleteMessage')) {
+              final args = response.fields['args'];
+              if (args != null && args.isNotEmpty) {
+                final roomId = eventName.split('/')[0];
+                final messageId = args[0]['_id'];
+                _handleDeleteMessageActivity(
+                  [
+                    {'rid': roomId, '_id': messageId},
+                  ],
+                );
+              }
             }
           }
           break;
@@ -184,8 +229,13 @@ class RocketChatFlutter with LoggerMixin {
               _handleRoomMessages(args, eventName);
             }
           }
+
+          // send a temporary online presence status when sending a message
+          // to keep the user presence status online.
+          // sendTemporaryUserPresenceStatus(Presence.online);
           break;
         case CollectionType.STREAM_NOTIFY_LOGGED:
+          print('data: ${data.toString()}');
           final eventName = response.fields['eventName'];
           if (eventName != null && eventName.endsWith('user-status')) {
             final args = response.fields['args'];
@@ -281,7 +331,7 @@ class RocketChatFlutter with LoggerMixin {
   void _handleRoomMessages(List<dynamic> args, String roomId) {
     log('_handleRoomMessages', 'Room messages: $args');
 
-    print('args: ${args.map((a) => a.toString())}');
+    // print('args: ${args.map((a) => a.toString())}');
 
     final List<dynamic> rawMessages = [];
 
@@ -324,7 +374,7 @@ class RocketChatFlutter with LoggerMixin {
 
   void _handleDeleteMessageActivity(List<dynamic> args) {
     log('_handleDeleteMessageActivity', 'Delete message activity: $args');
-    print('args: ${args.map((a) => a.toString())}');
+    // print('args: ${args.map((a) => a.toString())}');
 
     for (var messageData in args) {
       final messageId = messageData['_id'];
@@ -350,7 +400,7 @@ class RocketChatFlutter with LoggerMixin {
     log('_handleLoggedChange', 'Logged change: $args');
 
     final presence = UserPresence.fromList(args[0]);
-    _userPresences[presence.userId]?.value = presence;
+    _userPresences[presence.username]?.value = presence;
   }
 
   // ==============================
@@ -437,14 +487,15 @@ class RocketChatFlutter with LoggerMixin {
       return;
     }
 
-    _webSocketService.subscribeToRoomMessagesStream(roomId);
+    _webSocketService.subscribeToRoomMessagesUpdateStream(roomId);
+    _webSocketService.subscribeToRoomDeletedMessagesStream(roomId);
 
     // add the subscription id to the map.
     _roomMessageSubscriptions[roomId] = WebSocketHelper.getRoomMsgSubId(roomId);
 
     // fetch initial messages.
     _messageService.getRoomMessageHistory(roomId).then((messages) {
-      print('messages: ${messages.map((m) => m.toJson())}');
+      // print('messages: ${messages.map((m) => m.toJson())}');
       if (messages.isNotEmpty) {
         _roomMessages[roomId]?.value = messages;
       }
@@ -456,7 +507,8 @@ class RocketChatFlutter with LoggerMixin {
     _roomMessages[roomId]?.dispose();
     _roomMessages.remove(roomId);
     _roomMessageSubscriptions.remove(roomId);
-    _webSocketService.unsubscribeFromRoomMessagesStream(roomId);
+    _webSocketService.unsubscribeFromRoomMessagesUpdateStream(roomId);
+    _webSocketService.unsubscribeFromRoomDeletedMessagesStream(roomId);
   }
 
   /// Get the typing stream for a room.
@@ -497,38 +549,45 @@ class RocketChatFlutter with LoggerMixin {
   }
 
   /// Get the user presence stream.
-  ValueNotifier<UserPresence?> getUserPresence(String userId) {
-    _userPresences[userId] ??= ValueNotifier(null);
+  ValueNotifier<UserPresence?> getUserPresence(String username) {
+    _userPresences[username] ??= ValueNotifier(null);
 
-    if (!_userPresenceSubscriptions.containsKey(userId)) {
+    if (!_userPresenceSubscriptions.containsKey(username)) {
       // Use Future.microtask to avoid synchronous subscription
-      Future.microtask(() => _subscribeToUserPresence(userId));
+      Future.microtask(() => _subscribeToUserPresence(username));
 
       log(
         'getUserPresenceStream',
-        'Subscribed to user presence stream for user $userId',
+        'Subscribed to user presence stream for user $username',
       );
     }
 
-    return _userPresences[userId]!;
+    return _userPresences[username]!;
   }
 
-  void _subscribeToUserPresence(String userId) {
-    if (_userPresenceSubscriptions.keys.contains(userId)) {
+  void _subscribeToUserPresence(String username) {
+    if (_userPresenceSubscriptions.keys.contains(username)) {
       return;
     }
 
-    _webSocketService.subscribeToUserPresenceStream(userId);
-    _userPresenceSubscriptions[userId] =
-        WebSocketHelper.getUserPresenceSubId(userId);
+    _webSocketService.subscribeToUserPresenceStream(username);
+    _userPresenceSubscriptions[username] =
+        WebSocketHelper.getUserPresenceSubId(username);
+
+    // fetch initial presence.
+    _userService.getUserPresence(username).then((presence) {
+      print('fetch initial presence: ${presence.toList()}');
+      _userPresences[username]?.value = presence;
+    });
   }
 
   /// Close the user presence stream
-  void closeUserPresence(String userId) {
-    _userPresences[userId]?.dispose();
-    _userPresences.remove(userId);
-    _userPresenceSubscriptions.remove(userId);
-    _webSocketService.unsubscribeFromUserPresenceStream(userId);
+  void closeUserPresence(String username) {
+    _userPresenceTimer?.cancel();
+    _userPresences[username]?.dispose();
+    _userPresences.remove(username);
+    _userPresenceSubscriptions.remove(username);
+    _webSocketService.unsubscribeFromUserPresenceStream(username);
   }
 
   // ==============================
@@ -632,20 +691,50 @@ class RocketChatFlutter with LoggerMixin {
     if (success) {
       print('success: $success');
 
-      // handling this manually for the time being
-      // until a better alternative is found.
-      _handleDeleteMessageActivity([
-        {'rid': roomId, '_id': messageId},
-      ]);
+      // // handling this manually for the time being
+      // // until a better alternative is found.
+      // _handleDeleteMessageActivity([
+      //   {'rid': roomId, '_id': messageId},
+      // ]);
     }
+  }
+
+  /// Send a default user presence status.
+  ///
+  /// [status], the user presence status.
+  ///
+  /// This is typically called internally by [RocketChatFlutter].
+  /// Exposing this method to the public is in case users wants to manually
+  /// set their presence status.
+  void sendDefaultUserPresenceStatus([String status = Presence.online]) {
+    // print('sendDefaultUserPresenceStatus: $status');
+    _webSocketService.sendDefaultUserPresence(status);
   }
 
   /// Send a user presence status.
   ///
-  /// [status] The user presence status.
-  void sendUserPresenceStatus(String status) {
-    _webSocketService.sendUserPresence(status);
+  /// [status], the user presence status.
+  /// [message], the user presence message typically the [status].
+  ///
+  /// This is typically called internally by [RocketChatFlutter].
+  /// Exposing this method to the public is in case users wants to manually
+  /// set their presence status temporarily, that is the server resets the
+  /// user presence status to offline or away after a timeout.
+  void sendTemporaryUserPresenceStatus(String status, [String? message]) {
+    print('sendTemporaryUserPresenceStatus: $status');
+    // _webSocketService.sendTemporaryUserPresenceStatus(status);
+    _userService.setUserStatus(userId, status, message);
   }
+
+  /// Periodically send an online user presence status to keep the user presence
+  /// status online.
+  ///
+  /// This is typically called every 10 seconds.
+  // void _periodicallySendUserPresenceStatus() {
+  //   _userPresenceTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+  //     sendTemporaryUserPresenceStatus(Presence.online);
+  //   });
+  // }
 
   /// Create a new room.
   ///

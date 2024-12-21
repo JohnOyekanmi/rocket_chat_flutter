@@ -16,4 +16,14 @@ class Typing {
 
   @override
   String toString() => '$username is ${isTyping ? "typing" : "not typing"}';
+
+  @override
+  bool operator ==(Object other) {
+    return other is Typing &&
+        other.username == username &&
+        other.isTyping == isTyping;
+  }
+
+  @override
+  int get hashCode => username.hashCode ^ isTyping.hashCode;
 }

@@ -17,6 +17,12 @@ class WebSocketHelper {
     return getSubscriptionId("$roomId/messages");
   }
 
+  /// Get the room message subscription ID.
+  /// [roomId] The room ID.
+  static String getRoomDeletedMsgSubId(String roomId) {
+    return getSubscriptionId("$roomId/deleteMessage");
+  }
+
   /// Get the room typing subscription ID.
   /// [roomId] The room ID.
   static String getRoomTypingStatusSubId(String roomId) {

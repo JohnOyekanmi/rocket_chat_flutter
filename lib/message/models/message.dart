@@ -59,4 +59,25 @@ class Message {
       'attachments': attachments.map((e) => e.toJson()).toList(),
     };
   }
+
+  @override
+  String toString() {
+    return 'Message(id: $id, roomId: $roomId, user: $user, text: $text, createdAt: $createdAt, updatedAt: $updatedAt, groupable: $groupable, attachments: $attachments)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is Message &&
+        other.id == id &&
+        other.roomId == roomId &&
+        other.user == user &&
+        other.text == text &&
+        other.createdAt == createdAt &&
+        other.updatedAt == updatedAt &&
+        other.groupable == groupable &&
+        other.attachments == attachments;
+  }
+  
+  @override
+  int get hashCode => id.hashCode;
 }

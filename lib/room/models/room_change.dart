@@ -17,6 +17,16 @@ class RoomChange {
   String toString() {
     return 'RoomChange(changeType: $changeType, subscription: $subscription)';
   }
+
+  @override
+  bool operator ==(Object other) {
+    return other is RoomChange &&
+        other.changeType == changeType &&
+        other.subscription == subscription;
+  }
+
+  @override
+  int get hashCode => changeType.hashCode ^ subscription.hashCode;
 }
 
 class RoomChangeType {

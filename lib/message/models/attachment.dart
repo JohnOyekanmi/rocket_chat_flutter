@@ -78,11 +78,48 @@ class MessageAttachment {
       audioUrl: json['audio_url'],
       videoUrl: json['video_url'],
       description: json['description'],
-      fields: (json['fields'] as List?)?.map((e) => 
-        AttachmentField.fromJson(e as Map<String, dynamic>)
-      ).toList(),
+      fields: (json['fields'] as List?)
+          ?.map((e) => AttachmentField.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
+
+  @override
+  String toString() {
+    return 'MessageAttachment(color: $color, text: $text, timestamp: $timestamp, thumbUrl: $thumbUrl, messageLink: $messageLink, collapsed: $collapsed, authorName: $authorName, authorLink: $authorLink, authorIcon: $authorIcon, title: $title, titleLink: $titleLink, titleLinkDownload: $titleLinkDownload, imageUrl: $imageUrl, audioUrl: $audioUrl, videoUrl: $videoUrl, fields: $fields, description: $description)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is MessageAttachment &&
+        other.color == color &&
+        other.text == text &&
+        other.timestamp == timestamp &&
+        other.thumbUrl == thumbUrl &&
+        other.messageLink == messageLink &&
+        other.collapsed == collapsed &&
+        other.authorName == authorName &&
+        other.authorLink == authorLink &&
+        other.authorIcon == authorIcon &&
+        other.title == title &&
+        other.titleLink == titleLink &&
+        other.titleLinkDownload == titleLinkDownload;
+  }
+
+  @override
+  int get hashCode =>
+      color.hashCode ^
+      text.hashCode ^
+      timestamp.hashCode ^
+      thumbUrl.hashCode ^
+      messageLink.hashCode ^
+      collapsed.hashCode ^
+      authorName.hashCode ^
+      authorLink.hashCode ^
+      authorIcon.hashCode ^
+      title.hashCode ^
+      titleLink.hashCode ^
+      titleLinkDownload.hashCode;
 }
 
 class AttachmentField {
@@ -111,4 +148,20 @@ class AttachmentField {
       value: json['value'] as String,
     );
   }
+
+  @override
+  String toString() {
+    return 'AttachmentField(short: $short, title: $title, value: $value)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is AttachmentField &&
+        other.short == short &&
+        other.title == title &&
+        other.value == value;
+  }
+
+  @override
+  int get hashCode => short.hashCode ^ title.hashCode ^ value.hashCode;
 }

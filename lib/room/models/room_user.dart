@@ -25,4 +25,20 @@ class RoomUser {
       if (name != null) 'name': name,
     };
   }
-} 
+
+  @override
+  String toString() {
+    return 'RoomUser(id: $id, username: $username, name: $name)';
+  }
+  
+  @override
+  bool operator ==(Object other) {
+    return other is RoomUser &&
+        other.id == id &&
+        other.username == username &&
+        other.name == name;
+  }
+
+  @override
+  int get hashCode => id.hashCode ^ username.hashCode;
+}

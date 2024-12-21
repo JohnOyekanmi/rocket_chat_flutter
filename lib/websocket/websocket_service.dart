@@ -28,7 +28,7 @@ class WebSocketService with LoggerMixin {
 
   /// Dispose of the WebSocket service.
   void dispose() {
-    _channel.sink.close();
+    _channel.sink.close(1005, 'Application closed');
   }
 
   /// Connect to the WebSocket server.
@@ -71,13 +71,24 @@ class WebSocketService with LoggerMixin {
   /// Handle an error from the WebSocket server.
   void _handleError(Object error) {
     logE('_handleError', '$error');
-
+    print('ERROR: $error');
     _reconnect();
   }
 
   /// Handle the WebSocket connection being closed.
   void _handleDone() {
     log('_handleDone', 'WebSocket connection closed');
+
+    print('WebSocket connection closed');
+
+    //  Webscoket connection is closed prematurely.
+    if (_channel.closeCode != 1005 ||
+        _channel.closeReason != 'Application closed') {
+      print('WebSocket connection closed prematurely');
+
+      // try to reconnect.
+      _reconnect();
+    }
   }
 
   /// Send a connect request to the WebSocket server.
@@ -85,7 +96,7 @@ class WebSocketService with LoggerMixin {
     final msg = {
       "msg": "connect",
       "version": "1",
-      "support": ["1", "pre2", "pre1"]
+      "support": ["1"]
     };
 
     _sendWebSocketMessage(msg);
@@ -176,7 +187,7 @@ class WebSocketService with LoggerMixin {
 
   /// Stream room messages.
   /// [roomId] The room ID to stream messages for.
-  void subscribeToRoomMessagesStream(String roomId) {
+  void subscribeToRoomMessagesUpdateStream(String roomId) {
     subscribe(
       WebSocketHelper.getRoomMsgSubId(roomId),
       CollectionType.STREAM_ROOM_MESSAGES,
@@ -186,8 +197,24 @@ class WebSocketService with LoggerMixin {
 
   /// Unsubscribe from room messages stream.
   /// [roomId] The room ID to unsubscribe from.
-  void unsubscribeFromRoomMessagesStream(String roomId) {
+  void unsubscribeFromRoomMessagesUpdateStream(String roomId) {
     unsubscribe(WebSocketHelper.getRoomMsgSubId(roomId));
+  }
+
+  /// Stream room messages.
+  /// [roomId] The room ID to stream messages for.
+  void subscribeToRoomDeletedMessagesStream(String roomId) {
+    subscribe(
+      WebSocketHelper.getRoomDeletedMsgSubId(roomId),
+      CollectionType.STREAM_NOTIFY_ROOM,
+      '$roomId/deleteMessage',
+    );
+  }
+
+  /// Unsubscribe from room messages stream.
+  /// [roomId] The room ID to unsubscribe from.
+  void unsubscribeFromRoomDeletedMessagesStream(String roomId) {
+    unsubscribe(WebSocketHelper.getRoomDeletedMsgSubId(roomId));
   }
 
   /// Get user subscriptions.
@@ -256,14 +283,23 @@ class WebSocketService with LoggerMixin {
 
   /// Send a user presence request.
   /// [status] The user presence status.
-  void sendUserPresence(String status) {
+  void sendDefaultUserPresence(String status) {
     call(
       "method",
-      "setUserStatus",
+      "UserPresence:setDefaultStatus",
       WebSocketHelper.getUserPresenceRequestId(authentication.userId),
-      [
-        {"status": status}
-      ],
+      [status],
+    );
+  }
+
+  /// Send a temporary user presence status.
+  /// [status], the user presence status.
+  void sendTemporaryUserPresenceStatus(String status) {
+    call(
+      "method",
+      "UserPresence:$status",
+      WebSocketHelper.getUserPresenceRequestId(authentication.userId),
+      [],
     );
   }
 

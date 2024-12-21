@@ -73,4 +73,35 @@ class Subscription {
   String toString() {
     return 'Subscription(id: $id, rid: $rid, name: $name, type: $type)';
   }
+
+  @override
+  bool operator ==(Object other) {
+    return other is Subscription &&
+        other.id == id &&
+        other.rid == rid &&
+        other.name == name &&
+        other.type == type &&
+        other.u == u &&
+        other.updatedAt == updatedAt &&
+        other.open == open &&
+        other.alert == alert &&
+        other.unread == unread &&
+        other.userMentions == userMentions &&
+        other.groupMentions == groupMentions &&
+        other.ts == ts;
+  }
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      rid.hashCode ^
+      name.hashCode ^
+      type.hashCode ^
+      u.hashCode ^
+      updatedAt.hashCode ^
+      open.hashCode ^
+      alert.hashCode ^
+      unread.hashCode ^
+      userMentions.hashCode ^
+      groupMentions.hashCode;
 }

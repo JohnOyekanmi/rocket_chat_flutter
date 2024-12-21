@@ -25,7 +25,7 @@ class Presence {
 /// User presence model.
 class UserPresence {
   final String userId;
-  final String username;
+  final String? username;
   final String status;
 
   UserPresence(this.userId, this.username, this.status);
@@ -34,7 +34,7 @@ class UserPresence {
     return UserPresence(
       args[0] as String,
       args[1] as String,
-      Presence.fromInt(args[2]),
+      Presence.fromInt(args[2] ?? 0),
     );
   }
 
@@ -46,4 +46,15 @@ class UserPresence {
   String toString() {
     return 'UserPresence(userId: $userId, username: $username, presence: $status)';
   }
+
+  @override
+  bool operator ==(Object other) {
+    return other is UserPresence &&
+        other.userId == userId &&
+        other.username == username &&
+        other.status == status;
+  }
+
+  @override
+  int get hashCode => userId.hashCode ^ username.hashCode ^ status.hashCode;
 }
