@@ -113,8 +113,9 @@ class MessageService with LoggerMixin {
   Future<String> sendMediaMessage(
     String roomId,
     File mediaFile,
-    String? message,
-  ) async {
+    String? message, [
+    void Function(int count, int total)? onSendProgress,
+  ]) async {
     try {
       final mimeType = lookupMimeType(mediaFile.path);
       final fileName = mediaFile.path.split('/').last;
@@ -133,6 +134,7 @@ class MessageService with LoggerMixin {
       final response = await _dio.post(
         '/api/v1/rooms.upload/$roomId',
         data: formData,
+        onSendProgress: onSendProgress,
       );
 
       return response.data['message']['attachments'][0]['title_link'];

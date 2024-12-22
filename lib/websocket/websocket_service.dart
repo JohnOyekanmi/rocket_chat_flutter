@@ -11,11 +11,13 @@ class WebSocketService with LoggerMixin {
   final String url;
   final Auth authentication;
   final void Function(dynamic) onData;
+  final void Function() resubscribe;
 
   WebSocketService({
     required this.url,
     required this.authentication,
     required this.onData,
+    required this.resubscribe,
   });
 
   late WebSocketChannel _channel;
@@ -65,7 +67,7 @@ class WebSocketService with LoggerMixin {
       return;
     }
 
-    onData(msg);
+    onData.call(msg);
   }
 
   /// Handle an error from the WebSocket server.
@@ -73,6 +75,7 @@ class WebSocketService with LoggerMixin {
     logE('_handleError', '$error');
     print('ERROR: $error');
     _reconnect();
+    resubscribe.call();
   }
 
   /// Handle the WebSocket connection being closed.
@@ -87,7 +90,12 @@ class WebSocketService with LoggerMixin {
       print('WebSocket connection closed prematurely');
 
       // try to reconnect.
+      print('Reconnecting to WebSocket server');
       _reconnect();
+
+      // resubscribe to the WebSocket events.
+      print('Resubscribing to WebSocket events');
+      resubscribe.call();
     }
   }
 

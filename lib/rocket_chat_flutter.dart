@@ -53,6 +53,7 @@ class RocketChatFlutter with LoggerMixin {
       url: webSocketUrl,
       authentication: _auth,
       onData: _handleWebSocketData,
+      resubscribe: _resubscribe,
     );
     _messageService = MessageService(_dio);
     _roomService = RoomService(_dio);
@@ -94,6 +95,8 @@ class RocketChatFlutter with LoggerMixin {
   bool _isSubscribedToRoomSubscriptions = false;
   // final Map<String, StreamController<UserPresence>> _userPresences = {};
   final Map<String, ValueNotifier<UserPresence?>> _userPresences = {};
+
+  // Map<username, userPresenceSubscriptionId>
   final Map<String, String> _userPresenceSubscriptions = {};
 
   Timer? _userPresenceTimer;
@@ -136,6 +139,38 @@ class RocketChatFlutter with LoggerMixin {
     log('dispose', 'RocketChatFlutter disposed');
   }
 
+  void _resubscribe() {
+    log('_resubscribe', 'Resubscribing to WebSocket');
+
+    // resubscribe to room subscriptions.
+    _isSubscribedToRoomSubscriptions = false;
+    _subscribeToRoomSubscriptions();
+
+    // resubscribe to the room messages stream.
+    final curentRoomIds = _roomMessageSubscriptions.keys;
+    _roomMessageSubscriptions.clear();
+
+    for (var roomId in curentRoomIds) {
+      _subscribeToRoomMessages(roomId);
+    }
+
+    // resubscribe to the room typing stream.
+    final currentRoomTypingIds = _roomTypingSubscriptions.keys;
+    _roomTypingSubscriptions.clear();
+
+    for (var roomId in currentRoomTypingIds) {
+      _subscribeToRoomTyping(roomId);
+    }
+
+    // resubscribe to the user presence stream.
+    final currentUserPresenceIds = _userPresenceSubscriptions.keys;
+    _userPresenceSubscriptions.clear();
+
+    for (var username in currentUserPresenceIds) {
+      _subscribeToUserPresence(username);
+    }
+  }
+
   void _handleWebSocketData(dynamic data) {
     // Handle WebSocket data
     log('_handleWebSocketData', 'WebSocket data received: $data');
@@ -149,11 +184,11 @@ class RocketChatFlutter with LoggerMixin {
       }
     }
 
-    // TODO: remove this after debugging.
-    // for debugging purposes.
-    else {
-      print('data: ${data.toString()}');
-    }
+    // // TODO: remove this after debugging.
+    // // for debugging purposes.
+    // else {
+    //   print('data: ${data.toString()}');
+    // }
 
     // if (response.message == 'removed') {
     //   switch (response.collection) {
@@ -576,7 +611,7 @@ class RocketChatFlutter with LoggerMixin {
 
     // fetch initial presence.
     _userService.getUserPresence(username).then((presence) {
-      print('fetch initial presence: ${presence.toList()}');
+      // print('fetch initial presence: ${presence.toList()}');
       _userPresences[username]?.value = presence;
     });
   }
@@ -615,14 +650,16 @@ class RocketChatFlutter with LoggerMixin {
   Future<List<String>> sendMediaMessage(
     String roomId,
     List<File> files,
-    String? message,
-  ) async {
+    String? message, [
+    void Function(int count, int total)? onSendProgress,
+  ]) async {
     final fileUrls = <String>[];
     for (var file in files) {
       final fileUrl = await _messageService.sendMediaMessage(
         roomId,
         file,
         message,
+        onSendProgress,
       );
       fileUrls.add(fileUrl);
     }
@@ -638,9 +675,10 @@ class RocketChatFlutter with LoggerMixin {
   void sendAudioMessage(
     String roomId,
     String? message,
-    List<File> audioFiles,
-  ) {
-    sendMediaMessage(roomId, audioFiles, message);
+    List<File> audioFiles, [
+    void Function(int count, int total)? onSendProgress,
+  ]) {
+    sendMediaMessage(roomId, audioFiles, message, onSendProgress);
   }
 
   /// Send an image file to the room.
@@ -651,9 +689,10 @@ class RocketChatFlutter with LoggerMixin {
   void sendImageMessage(
     String roomId,
     String? message,
-    List<File> imageFiles,
-  ) {
-    sendMediaMessage(roomId, imageFiles, message);
+    List<File> imageFiles, [
+    void Function(int count, int total)? onSendProgress,
+  ]) {
+    sendMediaMessage(roomId, imageFiles, message, onSendProgress);
   }
 
   /// Send a video file to the room.
@@ -664,9 +703,10 @@ class RocketChatFlutter with LoggerMixin {
   void sendVideoMessage(
     String roomId,
     String? message,
-    List<File> videoFiles,
-  ) {
-    sendMediaMessage(roomId, videoFiles, message);
+    List<File> videoFiles, [
+    void Function(int count, int total)? onSendProgress,
+  ]) {
+    sendMediaMessage(roomId, videoFiles, message, onSendProgress);
   }
 
   /// Send a typing status to a room.
@@ -688,15 +728,15 @@ class RocketChatFlutter with LoggerMixin {
   /// [messageId] The message ID.
   Future<void> deleteMessage(String roomId, String messageId) async {
     final success = await _messageService.deleteMessage(roomId, messageId);
-    if (success) {
-      print('success: $success');
+    // if (success) {
+    //   print('success: $success');
 
-      // // handling this manually for the time being
-      // // until a better alternative is found.
-      // _handleDeleteMessageActivity([
-      //   {'rid': roomId, '_id': messageId},
-      // ]);
-    }
+    //   // // handling this manually for the time being
+    //   // // until a better alternative is found.
+    //   // _handleDeleteMessageActivity([
+    //   //   {'rid': roomId, '_id': messageId},
+    //   // ]);
+    // }
   }
 
   /// Send a default user presence status.
@@ -721,7 +761,7 @@ class RocketChatFlutter with LoggerMixin {
   /// set their presence status temporarily, that is the server resets the
   /// user presence status to offline or away after a timeout.
   void sendTemporaryUserPresenceStatus(String status, [String? message]) {
-    print('sendTemporaryUserPresenceStatus: $status');
+    // print('sendTemporaryUserPresenceStatus: $status');
     // _webSocketService.sendTemporaryUserPresenceStatus(status);
     _userService.setUserStatus(userId, status, message);
   }
