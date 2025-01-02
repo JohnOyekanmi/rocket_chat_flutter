@@ -727,7 +727,8 @@ class RocketChatFlutter with LoggerMixin {
   /// [roomId] The room ID.
   /// [messageId] The message ID.
   Future<void> deleteMessage(String roomId, String messageId) async {
-    final success = await _messageService.deleteMessage(roomId, messageId);
+    // final success = 
+    await _messageService.deleteMessage(roomId, messageId);
     // if (success) {
     //   print('success: $success');
 
