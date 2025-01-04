@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 
 import 'auth/models/auth.dart';
 import 'message/message_service.dart';
+import 'message/models/message_read_receipt.dart';
 import 'message/models/new_message_request.dart';
 import 'room/models/room.dart';
 import 'room/models/typing.dart';
@@ -85,7 +86,7 @@ class RocketChatFlutter with LoggerMixin {
   // final Map<String, StreamController<List<Message>>> _roomMessages = {};
   // final Map<String, StreamController<Typing>> _roomTypings = {};
   final Map<String, ValueNotifier<List<Message>>> _roomMessages = {};
-  final Map<String, ValueNotifier<Typing?>> _roomTypings = {};
+  final Map<String, StreamController<Typing>> _roomTypings = {};
   // final StreamController<List<RoomChange>> _subscriptions =
   //     StreamController.broadcast();
   final ValueNotifier<List<RoomChange>> _subscriptions = ValueNotifier([]);
@@ -289,8 +290,9 @@ class RocketChatFlutter with LoggerMixin {
 
   void _handleUserActivity(List<dynamic> args, String roomId) {
     log('_handleUserActivity', 'User activity: $args');
+    print('_handleUserActivity: $args');
 
-    _roomTypings[roomId]?.value = Typing.fromList(args);
+    _roomTypings[roomId]?.add(Typing.fromList(args));
   }
 
   void _handleUserSubscriptionsQueryResponse(List<dynamic> result) {
@@ -547,8 +549,8 @@ class RocketChatFlutter with LoggerMixin {
   }
 
   /// Get the typing stream for a room.
-  ValueNotifier<Typing?> getTyping(String roomId) {
-    _roomTypings[roomId] ??= ValueNotifier(null);
+  Stream<Typing> getTyping(String roomId) {
+    _roomTypings[roomId] ??= StreamController<Typing>.broadcast();
 
     if (!_roomTypingSubscriptions.containsKey(roomId)) {
       // Use Future.microtask to avoid synchronous subscription
@@ -560,11 +562,11 @@ class RocketChatFlutter with LoggerMixin {
       );
     }
 
-    return _roomTypings[roomId]!;
+    return _roomTypings[roomId]!.stream;
   }
 
   void _subscribeToRoomTyping(String roomId) {
-    if (_roomTypingSubscriptions.keys.contains(roomId)) {
+    if (_roomTypingSubscriptions.containsKey(roomId)) {
       return;
     }
 
@@ -577,7 +579,7 @@ class RocketChatFlutter with LoggerMixin {
 
   /// Close the typing stream for a room.
   void closeTyping(String roomId) {
-    _roomTypings[roomId]?.dispose();
+    _roomTypings[roomId]?.close();
     _roomTypings.remove(roomId);
     _roomTypingSubscriptions.remove(roomId);
     _webSocketService.unsubscribeFromRoomTypingStream(roomId);
@@ -727,7 +729,7 @@ class RocketChatFlutter with LoggerMixin {
   /// [roomId] The room ID.
   /// [messageId] The message ID.
   Future<void> deleteMessage(String roomId, String messageId) async {
-    // final success = 
+    // final success =
     await _messageService.deleteMessage(roomId, messageId);
     // if (success) {
     //   print('success: $success');
@@ -818,5 +820,12 @@ class RocketChatFlutter with LoggerMixin {
   /// [roomId] The room ID.
   Future<bool> markAllRoomMessagesAsRead(String roomId) {
     return _roomService.markAsRead(roomId);
+  }
+
+  /// Get the message read receipts.
+  ///
+  /// [roomId] The room ID.
+  Future<List<MessageReadReceipt>> getMessageReadReceipts(String messageId) {
+    return _messageService.getMessageReadReceipts(messageId);
   }
 }

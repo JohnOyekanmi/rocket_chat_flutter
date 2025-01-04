@@ -7,6 +7,8 @@ import 'package:rocket_chat_flutter/message/models/new_message_request.dart';
 import 'package:rocket_chat_flutter/utils/Exceptions/rocket_chat_exception.dart';
 import 'package:rocket_chat_flutter/utils/logger_mixin.dart';
 
+import 'models/message_read_receipt.dart';
+
 /// The message service.
 class MessageService with LoggerMixin {
   final Dio _dio;
@@ -29,7 +31,7 @@ class MessageService with LoggerMixin {
         },
       );
 
-      print(response.data['messages'][0]);
+      // print(response.data['messages'][0]);
 
       return List<Message>.from(
         response.data['messages'].map((e) => Message.fromJson(e)),
@@ -175,6 +177,32 @@ class MessageService with LoggerMixin {
         'Failed to delete message',
         _serviceClass,
         'deleteMessage',
+        e,
+        s.toString(),
+      );
+    }
+  }
+
+  /// Fetches read receipts for messages in a room
+  Future<List<MessageReadReceipt>> getMessageReadReceipts(String messageId) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/chat.getMessageReadReceipts',
+        queryParameters: {'messageId': messageId},
+      );
+
+      return List<MessageReadReceipt>.from(
+        response.data['receipts'].map((e) => MessageReadReceipt.fromJson(e)),
+      );
+    } on Exception catch (e, s) {
+      if (e is DioException) {
+        rethrow;
+      }
+
+      throw RocketChatException(
+        'Failed to fetch message read receipts',
+        _serviceClass,
+        'getMessageReadReceipts',
         e,
         s.toString(),
       );

@@ -134,8 +134,17 @@ class WebSocketService with LoggerMixin {
   /// Send a message through WebSocket with proper formatting
   /// [data] The message data to send
   void _sendWebSocketMessage(Map<String, dynamic> data) {
-    final jsonData = jsonEncode(data);
-    _channel.sink.add(jsonData);
+    try {
+      final jsonData = jsonEncode(data);
+      _channel.sink.add(jsonData);
+    } on Exception catch (e) {
+      logE('_sendWebSocketMessage', '$e');
+
+      // reconnecct after 1 second.
+      Future.delayed(const Duration(seconds: 1), () {
+        _handleError(e);
+      });
+    }
   }
 
   /// Subscribe to a WebSocket event.
