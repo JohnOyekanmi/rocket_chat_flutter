@@ -73,7 +73,7 @@ class WebSocketService with LoggerMixin {
   /// Handle an error from the WebSocket server.
   void _handleError(Object error) {
     logE('_handleError', '$error');
-    print('ERROR: $error');
+    // print('ERROR: $error');
     _reconnect();
     resubscribe.call();
   }
@@ -82,19 +82,19 @@ class WebSocketService with LoggerMixin {
   void _handleDone() {
     log('_handleDone', 'WebSocket connection closed');
 
-    print('WebSocket connection closed');
+    // print('WebSocket connection closed');
 
     //  Webscoket connection is closed prematurely.
     if (_channel.closeCode != 1005 ||
         _channel.closeReason != 'Application closed') {
-      print('WebSocket connection closed prematurely');
+      // print('WebSocket connection closed prematurely');
 
       // try to reconnect.
-      print('Reconnecting to WebSocket server');
+      // print('Reconnecting to WebSocket server');
       _reconnect();
 
       // resubscribe to the WebSocket events.
-      print('Resubscribing to WebSocket events');
+      // print('Resubscribing to WebSocket events');
       resubscribe.call();
     }
   }
